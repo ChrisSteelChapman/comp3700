@@ -1,174 +1,71 @@
-# coding=UTF-8
-from game import *
-from user import *
+#Simple Multi Connection Server implementation taken from https://realpython.com/python-sockets/
 
-class group(object):
+import socket
+import selectors
+import types
 
-  """
-   
+sel = selectors.DefaultSelector()
 
-  :version:
-  :author:
-  """
+HOST = '127.0.0.1' # localhost
+PORT = 65432 # nonprivileged port
 
-  """ ATTRIBUTES
+max_connections = 10
+group_status = 0 #0 for Public, 1 for Private
 
-   
+lsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+lsock.bind((HOST, PORT))
+lsock.listen()
+print('listening on', (HOST, PORT))
+lsock.setblocking(False)
+sel.register(lsock, selectors.EVENT_READ, data=None)
 
-  adminList  (private)
-
-   
-
-  memberList  (private)
-
-   
-
-  banList  (private)
-
-   
-
-  groupName  (protected)
-
-   
-
-  games  (protected)
-
-   
-
-  waitList  (private)
-
-  """
-  def __init__(self, nameIn):
-      global adminList
-      global memberList
-      global banList
-      global groupName
-      global games
-      global waitList
-      
-      adminList = []
-      memberList = []
-      banList = []
-      groupName = nameIn
-      games = []
-      waitList = []
-      
-  def _launchGame(self, gameToLaunch):
-    """
-     
-
-    @param game gameToLaunch : 
-    @return bool :
-    @author
-    """
-    pass
-
-  def _banPlayer(self, badPerson):
-    """
-     
-
-    @param user badPerson : 
-    @return bool :
-    @author
-    """
-    if badPerson in memberList:
-        memberList.remove(badPerson)
-        banList.add(badPerson)
-        return True
-    else:
-        return False
-
-  def _addWaitlist(self, player, code):
-    """
-     
-
-    @param user badPerson : 
-    @return bool :
-    @author
-    """
-    if code == joinCode and privacy == "public":
-      waitlist.add(player)
-      return True
-    elif privacy == "private":
-      approval = requestAdmin(player)
-      return approval
-    else:
-      return False
+def accept_wrapper(sock):
+    if (group_status == 0):
+        conn, addr = sock.accept()
+        print('accepted connection from', addr)
+        conn.setblocking(False)
+        data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
+        events = selectors.EVENT_READ | selectors.EVENT_WRITE
+        sel.register(conn, events, data=data)
 
 
-  def _addPlayer(self, player):
-    """
-     
+def kick_player(key):
+    sock = key.fileobj
+    sel.unregister(sock)
+    sock.close()
 
-    @param user player : 
-    @return bool :
-    @author
-    """
-    if player in waitlist:
-        memberList.add(player)
-        return True
-    else:
-        return False
-    pass
 
-  def _addAdmin(self, player):
-    """
-     
+def set_max_connections(new_max_connections):
+    max_connections = new_max_connections
 
-    @param user player : 
-    @return bool :
-    @author
-    """
-    if player in memberList:
-      adminList.add(player)
-      return True
-    else:
-      return False
 
-  def _setAttributes(self,player,privacy,genre,joinCode,language,region):
-    """
-     
+def set_status(new_status):
+    group_status = new_status
 
-    @param user player : 
-    @return bool :
-    @author
-    """
-    if player in adminList:
-      self.privacy = privacy
-      setGenre(genre)
-      self.joinCode = joinCode
-      self.language = language
-      self.region = region
-      return True 
-    else: 
-      return False
 
-  def _setGenre(genre):
-    """
-     
-
-    @param user badPerson : 
-    @return bool :
-    @author
-    """
-    game.setGenre(genre)
-    return True
-
-  def _requestAdmin(player):
-    """
-     
-
-    @param user badPerson : 
-    @return bool :
-    @author
-    """
-    # Notify admin, add or deny player via UI
-    # For testing, approve() = True
-    approve = True
-    if approve():
-      memberList.add(player)
-      return approve()
-    else:
-      return False
+def service_connection(key,mask):
+    sock = key.fileobj
+    data = key.data
+    if mask & selectors.EVENT_READ:
+        recv_data = sock.recv(1024)
+        if recv_data:
+            data.outb += recv_data
+        else:
+            # No data received -> client has closed their socket
+            print('closing connection to', data.addr)
+            sel.unregister(sock)
+            sock.close()
+    if mask & selectors.EVENT_WRITE:
+        if data.outb:
+            print('echoing', repr(data.outb), 'to', data.addr)
+            sent = sock.send(data.outb)
+            data.outb = data.outb[sent:]
+while True:
+    events = sel.select(timeout=None)
+    for key, mask in events:
+        if key.data is None:
+            accept_wrapper(key.fileobj)
+        else:
+            service_connection(key,mask)
 
 
